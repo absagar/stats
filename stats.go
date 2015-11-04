@@ -2,8 +2,10 @@ package stats
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -15,52 +17,44 @@ type Stats struct {
 	ResponseCounts      map[string]int
 	TotalResponseCounts map[string]int
 	TotalResponseTime   time.Time
+	BadRoutes           map[string]int
+	Logger              *log.Logger
 }
 
-func New() *Stats {
+var currentRoute string
+
+func New(logger *log.Logger) *Stats {
 	stats := &Stats{
 		Uptime:              time.Now(),
 		Pid:                 os.Getpid(),
 		ResponseCounts:      map[string]int{},
 		TotalResponseCounts: map[string]int{},
 		TotalResponseTime:   time.Time{},
+		BadRoutes:           map[string]int{},
+		Logger:              logger,
 	}
 
-	go func() {
-		for {
-			stats.ResetResponseCounts()
-
-			time.Sleep(time.Second * 1)
-		}
-	}()
-
 	return stats
-}
-
-func (mw *Stats) ResetResponseCounts() {
-	mw.mu.Lock()
-	defer mw.mu.Unlock()
-	mw.ResponseCounts = map[string]int{}
-}
-
-// MiddlewareFunc makes Stats implement the Middleware interface.
-func (mw *Stats) Handler(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		beginning, recorder := mw.Begin(w)
-
-		h.ServeHTTP(recorder, r)
-
-		mw.End(beginning, recorder)
-	})
 }
 
 // Negroni compatible interface
 func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	beginning, recorder := mw.Begin(w)
+	currentRoute = r.URL.String() + ":" + r.Method
+	defer func() {
+		if err := recover(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			stack := make([]byte, 1024*8)
+			stack = stack[:runtime.Stack(stack, false)]
+			mw.EndWithStatus(beginning, http.StatusInternalServerError)
 
+			f := "PANIC: %s\n%s"
+			mw.Logger.Printf(f, err, stack)
+		} else {
+			mw.EndWithStatus(beginning, recorder.Status())
+		}
+	}()
 	next(recorder, r)
-
-	mw.End(beginning, recorder)
 }
 
 func (mw *Stats) Begin(w http.ResponseWriter) (time.Time, Recorder) {
@@ -85,10 +79,10 @@ func (mw *Stats) EndWithStatus(start time.Time, status int) {
 	mw.ResponseCounts[statusCode]++
 	mw.TotalResponseCounts[statusCode]++
 	mw.TotalResponseTime = mw.TotalResponseTime.Add(responseTime)
-}
-
-func (mw *Stats) End(start time.Time, recorder Recorder) {
-	mw.EndWithStatus(start, recorder.Status())
+	if status >= http.StatusInternalServerError {
+		fmt.Println("currentRoute", currentRoute)
+		mw.BadRoutes[currentRoute] = mw.BadRoutes[currentRoute] + 1
+	}
 }
 
 type data struct {
@@ -105,6 +99,7 @@ type data struct {
 	TotalResponseTimeSec   float64        `json:"total_response_time_sec"`
 	AverageResponseTime    string         `json:"average_response_time"`
 	AverageResponseTimeSec float64        `json:"average_response_time_sec"`
+	BadRoutes              map[string]int `json:bad_routes`
 }
 
 func (mw *Stats) Data() *data {
@@ -147,6 +142,7 @@ func (mw *Stats) Data() *data {
 		TotalResponseTimeSec:   totalResponseTime.Seconds(),
 		AverageResponseTime:    averageResponseTime.String(),
 		AverageResponseTimeSec: averageResponseTime.Seconds(),
+		BadRoutes:              mw.BadRoutes,
 	}
 
 	mw.mu.RUnlock()
