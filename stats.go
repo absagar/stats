@@ -1,13 +1,13 @@
 package stats
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"runtime"
 	"sync"
 	"time"
+	"fmt"
 )
 
 type Stats struct {
@@ -47,7 +47,6 @@ func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 			stack := make([]byte, 1024*8)
 			stack = stack[:runtime.Stack(stack, false)]
 			mw.EndWithStatus(beginning, http.StatusInternalServerError)
-
 			f := "PANIC: %s\n%s"
 			mw.Logger.Printf(f, err, stack)
 		} else {
@@ -80,7 +79,6 @@ func (mw *Stats) EndWithStatus(start time.Time, status int) {
 	mw.TotalResponseCounts[statusCode]++
 	mw.TotalResponseTime = mw.TotalResponseTime.Add(responseTime)
 	if status >= http.StatusInternalServerError {
-		fmt.Println("currentRoute", currentRoute)
 		mw.BadRoutes[currentRoute] = mw.BadRoutes[currentRoute] + 1
 	}
 }
