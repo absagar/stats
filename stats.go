@@ -40,7 +40,7 @@ func New(logger *log.Logger) *Stats {
 // Negroni compatible interface
 func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	beginning, recorder := mw.Begin(w)
-	currentRoute = r.URL.String() + ":" + r.Method
+	currentRoute = r.URL.Path + ":" + r.Method
 	defer func() {
 		if err := recover(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
