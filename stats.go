@@ -1,13 +1,13 @@
 package stats
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"runtime"
 	"sync"
 	"time"
-	"fmt"
 )
 
 type Stats struct {
@@ -18,12 +18,20 @@ type Stats struct {
 	TotalResponseCounts map[string]int
 	TotalResponseTime   time.Time
 	BadRoutes           map[string]int
+	SlowRoutes          map[string]SlowRoutesData
 	Logger              *log.Logger
+	Latency             time.Duration
+}
+
+type SlowRoutesData struct {
+	Count   int
+	AvgTime time.Duration
+	MaxTime time.Duration
 }
 
 var currentRoute string
 
-func New(logger *log.Logger) *Stats {
+func New(logger *log.Logger, allowedLatencyInSec time.Duration) *Stats {
 	stats := &Stats{
 		Uptime:              time.Now(),
 		Pid:                 os.Getpid(),
@@ -31,7 +39,9 @@ func New(logger *log.Logger) *Stats {
 		TotalResponseCounts: map[string]int{},
 		TotalResponseTime:   time.Time{},
 		BadRoutes:           map[string]int{},
+		SlowRoutes:          map[string]SlowRoutesData{},
 		Logger:              logger,
+		Latency:             allowedLatencyInSec * time.Second,
 	}
 
 	return stats
@@ -81,23 +91,37 @@ func (mw *Stats) EndWithStatus(start time.Time, status int) {
 	if status >= http.StatusInternalServerError {
 		mw.BadRoutes[currentRoute] = mw.BadRoutes[currentRoute] + 1
 	}
+	if responseTime > mw.Latency {
+		if _, ok := mw.SlowRoutes[currentRoute]; !ok {
+			mw.SlowRoutes[currentRoute] = SlowRoutesData{Count: 1, AvgTime: responseTime, MaxTime: responseTime}
+		} else {
+			srd := mw.SlowRoutes[currentRoute]
+			if responseTime > srd.MaxTime {
+				srd.MaxTime = responseTime
+			}
+			srd.AvgTime = ((srd.AvgTime * time.Duration(srd.Count)) + responseTime) / (time.Duration(srd.Count))
+			srd.Count += 1
+			mw.SlowRoutes[currentRoute] = srd
+		}
+	}
 }
 
 type data struct {
-	Pid                    int            `json:"pid"`
-	UpTime                 string         `json:"uptime"`
-	UpTimeSec              float64        `json:"uptime_sec"`
-	Time                   string         `json:"time"`
-	TimeUnix               int64          `json:"unixtime"`
-	StatusCodeCount        map[string]int `json:"status_code_count"`
-	TotalStatusCodeCount   map[string]int `json:"total_status_code_count"`
-	Count                  int            `json:"count"`
-	TotalCount             int            `json:"total_count"`
-	TotalResponseTime      string         `json:"total_response_time"`
-	TotalResponseTimeSec   float64        `json:"total_response_time_sec"`
-	AverageResponseTime    string         `json:"average_response_time"`
-	AverageResponseTimeSec float64        `json:"average_response_time_sec"`
-	BadRoutes              map[string]int `json:bad_routes`
+	Pid                    int                       `json:"pid"`
+	UpTime                 string                    `json:"uptime"`
+	UpTimeSec              float64                   `json:"uptime_sec"`
+	Time                   string                    `json:"time"`
+	TimeUnix               int64                     `json:"unixtime"`
+	StatusCodeCount        map[string]int            `json:"status_code_count"`
+	TotalStatusCodeCount   map[string]int            `json:"total_status_code_count"`
+	Count                  int                       `json:"count"`
+	TotalCount             int                       `json:"total_count"`
+	TotalResponseTime      string                    `json:"total_response_time"`
+	TotalResponseTimeSec   float64                   `json:"total_response_time_sec"`
+	AverageResponseTime    string                    `json:"average_response_time"`
+	AverageResponseTimeSec float64                   `json:"average_response_time_sec"`
+	BadRoutes              map[string]int            `json:bad_routes`
+	SlowRoutes             map[string]SlowRoutesData `json:slow_routes`
 }
 
 func (mw *Stats) Data() *data {
@@ -141,6 +165,7 @@ func (mw *Stats) Data() *data {
 		AverageResponseTime:    averageResponseTime.String(),
 		AverageResponseTimeSec: averageResponseTime.Seconds(),
 		BadRoutes:              mw.BadRoutes,
+		SlowRoutes:             mw.SlowRoutes,
 	}
 
 	mw.mu.RUnlock()
