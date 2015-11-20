@@ -49,6 +49,10 @@ func New(logger *log.Logger, allowedLatencyInSec time.Duration) *Stats {
 
 // Negroni compatible interface
 func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if r.Method == "OPTIONS" {
+		next(w, r)
+		return
+	}
 	beginning, recorder := mw.Begin(w)
 	currentRoute = r.URL.Path + ":" + r.Method
 	defer func() {
@@ -99,7 +103,7 @@ func (mw *Stats) EndWithStatus(start time.Time, status int) {
 			if responseTime > srd.MaxTime {
 				srd.MaxTime = responseTime
 			}
-			srd.AvgTime = ((srd.AvgTime * time.Duration(srd.Count)) + responseTime) / (time.Duration(srd.Count))
+			srd.AvgTime = ((srd.AvgTime * time.Duration(srd.Count)) + responseTime) / (time.Duration(srd.Count + 1))
 			srd.Count += 1
 			mw.SlowRoutes[currentRoute] = srd
 		}
