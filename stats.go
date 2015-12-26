@@ -63,7 +63,7 @@ func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 			stack := make([]byte, 1024*8)
 			stack = stack[:runtime.Stack(stack, false)]
 			mw.EndWithStatus(beginning, http.StatusInternalServerError)
-			f := time.Now().String() + "PANIC: %s\n%s"
+			f := time.Now().UTC().String() + "PANIC: %s\n%s"
 			mw.Logger.Printf(f, err, stack)
 		} else {
 			mw.EndWithStatus(beginning, recorder.Status())
