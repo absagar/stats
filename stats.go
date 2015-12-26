@@ -63,7 +63,7 @@ func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 			stack := make([]byte, 1024*8)
 			stack = stack[:runtime.Stack(stack, false)]
 			mw.EndWithStatus(beginning, http.StatusInternalServerError)
-			f := "PANIC: %s\n%s"
+			f := time.Now().UTC().String() + "PANIC: %s\n%s"
 			mw.Logger.Printf(f, err, stack)
 		} else {
 			mw.EndWithStatus(beginning, recorder.Status())
@@ -127,7 +127,7 @@ type data struct {
 	AverageResponseTimeSec float64                   `json:"average_response_time_sec"`
 	BadRoutes              map[string]int            `json:"bad_routes"`
 	SlowRoutes             map[string]SlowRoutesData `json:"slow_routes"`
-	TimeoutRoutes			map[string]int			`json:timeout_routes`
+	TimeoutRoutes          map[string]int            `json:timeout_routes`
 }
 
 func (mw *Stats) Data() *data {
@@ -165,7 +165,7 @@ func (mw *Stats) Data() *data {
 		AverageResponseTimeSec: averageResponseTime.Seconds(),
 		BadRoutes:              mw.BadRoutes,
 		SlowRoutes:             mw.SlowRoutes,
-		TimeoutRoutes:			mw.TimeoutRoutes,
+		TimeoutRoutes:          mw.TimeoutRoutes,
 	}
 
 	mw.mu.RUnlock()
