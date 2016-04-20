@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+type reformatURL func(string, string) string
+
 type Stats struct {
 	mu                sync.RWMutex
 	Uptime            time.Time
@@ -22,6 +24,7 @@ type Stats struct {
 	Logger            *log.Logger
 	Latency           time.Duration
 	TimeoutLimit      time.Duration
+	GetKey       reformatURL
 }
 
 type SlowRoutesData struct {
@@ -32,7 +35,7 @@ type SlowRoutesData struct {
 
 var currentRoute string
 
-func New(logger *log.Logger, allowedLatency time.Duration, timeout time.Duration) *Stats {
+func New(logger *log.Logger, allowedLatency time.Duration, timeout time.Duration, fn reformatURL) *Stats {
 	stats := &Stats{
 		Uptime:            time.Now(),
 		Pid:               os.Getpid(),
@@ -45,6 +48,10 @@ func New(logger *log.Logger, allowedLatency time.Duration, timeout time.Duration
 		Latency:           allowedLatency,
 		TimeoutLimit:      timeout,
 	}
+	//This function can be used to properly group the routes (for example - cases where variable parameters exist in URLs)
+	if fn != nil {
+		stats.GetKey = fn
+	}
 
 	return stats
 }
@@ -56,7 +63,7 @@ func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 		return
 	}
 	beginning, recorder := mw.Begin(w)
-	currentRoute = r.URL.Path + ":" + r.Method
+	currentRoute = mw.GetKey(r.URL.Path, r.Method)
 	defer func() {
 		if err := recover(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
