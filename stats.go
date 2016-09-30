@@ -24,7 +24,7 @@ type Stats struct {
 	Logger            *log.Logger
 	Latency           time.Duration
 	TimeoutLimit      time.Duration
-	GetKey       reformatURL
+	GetKey            reformatURL
 }
 
 type SlowRoutesData struct {
@@ -32,8 +32,6 @@ type SlowRoutesData struct {
 	AvgTime time.Duration
 	MaxTime time.Duration
 }
-
-var currentRoute string
 
 func New(logger *log.Logger, allowedLatency time.Duration, timeout time.Duration, fn reformatURL) *Stats {
 	stats := &Stats{
@@ -63,19 +61,19 @@ func (mw *Stats) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.Han
 		return
 	}
 	beginning, recorder := mw.Begin(w)
-	currentRoute = mw.GetKey(r.URL.Path, r.Method)
-	defer func() {
+	currentRoute := mw.GetKey(r.URL.Path, r.Method)
+	defer func(currentRoute string) {
 		if err := recover(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			stack := make([]byte, 1024*8)
 			stack = stack[:runtime.Stack(stack, false)]
-			mw.EndWithStatus(beginning, http.StatusInternalServerError)
+			mw.EndWithStatus(beginning, currentRoute, http.StatusInternalServerError)
 			f := time.Now().UTC().String() + "PANIC: %s\n%s"
 			mw.Logger.Printf(f, err, stack)
 		} else {
-			mw.EndWithStatus(beginning, recorder.Status())
+			mw.EndWithStatus(beginning, currentRoute, recorder.Status())
 		}
-	}()
+	}(currentRoute)
 	next(recorder, r)
 }
 
@@ -87,7 +85,7 @@ func (mw *Stats) Begin(w http.ResponseWriter) (time.Time, Recorder) {
 	return start, writer
 }
 
-func (mw *Stats) EndWithStatus(start time.Time, status int) {
+func (mw *Stats) EndWithStatus(start time.Time, currentRoute string, status int) {
 	end := time.Now()
 
 	responseTime := end.Sub(start)
